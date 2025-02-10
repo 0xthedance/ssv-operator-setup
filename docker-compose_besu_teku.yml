@@ -1,0 +1,110 @@
+---
+services:
+  besu_node:
+    restart: unless-stopped
+    environment:
+      - "JAVA_OPTS=-Xmx5g"
+    image: hyperledger/besu:latest
+    command:
+      [
+       "--network=mainnet",
+       "--rpc-http-enabled=true",
+       "--data-path=/var/lib/besu",
+       "--rpc-ws-enabled",
+       "--metrics-enabled",
+       "--sync-mode=SNAP",
+       "--data-storage-format=BONSAI",
+       "--Xbonsai-limit-trie-logs-enabled=true",
+       "--Xplugin-rocksdb-high-spec-enabled",
+       "--engine-jwt-secret=/secrets/jwtsecret.hex",
+       "--engine-rpc-enabled=true",
+       "--engine-host-allowlist=*",
+       "--host-allowlist=*",
+       "--max-peers=25"
+       ]
+    volumes:
+      - ${DATA\PATH}/besu:/var/lib/besu
+      - /secrets/jwtsecret.hex:/secrets/jwtsecret.hex
+    ports:
+      # Map the p2p port(30303), RPC HTTP port(8545), and engine port (8551)
+      - "8545:8545"
+      - "8546:8546"
+      - "8551:8551"
+      - "30303:30303/tcp"
+      - "30303:30303/udp"
+
+  teku_node:
+    restart: unless-stopped
+    environment:
+      - "JAVA_OPTS=-Xmx6g"
+      - "TEKU_OPTS=-XX:-HeapDumpOnOutOfMemoryError"
+    image: consensys/teku:latest
+    command:
+      [
+       "--network=mainnet", 
+       "--data-base-path=/var/lib/teku",
+       "--data-storage-mode=minimal",
+       "--initial-state="https://beaconstate.info" ,
+       "--validators-proposer-default-fee-recipient=",
+       "--ee-endpoint=http://besu_node:8551",
+       "--ee-jwt-secret-file=/secrets/jwtsecret.hex",
+       "--p2p-port=9000",
+       "--rest-api-enabled=true",
+       "--rest-api-port=5052",
+       "--rest-api-docs-enabled=true",
+       "--rest-api-host-allowlist=*",
+       "--p2p-peer-upper-bound=100",
+       "--p2p-peer-lower-bound=60",
+       "--metrics-enabled=true",
+       "--metrics-port=8008",
+       "--builder-endpoint=http://mev_boost:18550",
+      ]
+    depends_on:
+      - besu_node
+    volumes:
+      - ${DATA\PATH}/teku:/var/lib/teku
+
+    ports:
+      # Map the p2p port(9000) and REST API port(5051)
+      - "9000:9000/tcp"
+      - "9000:9000/udp"
+      - "5051:5051"
+      - "8008:8008"
+      - "5052:5052"
+
+  ssv_node:
+    restart: unless-stopped
+    environment:
+      - "CONFIG_PATH=/config.yaml"
+    image: bloxstaking/ssv-node:latest
+    command:
+      make BUILD_PATH="/go/bin/ssvnode" start-node
+    depends_on:
+      - besu_node
+      - teku_node
+    volumes:
+      - ./ssv/config.yaml:/config.yaml
+      - ${DATA\PATH}/ssv/data:/data 
+      - ./ssv/password:/password 
+      - ./ssv/encrypted_private_key.json:/encrypted_private_key.json 
+    ports:
+      - 13001:13001
+      - 12001:12001/udp
+      - 15000:15000
+  
+  mev_boost:
+    restart: unless-stopped
+    image: flashbots/mev-boost:latest
+    command: 
+      [
+       "-mainnet",
+       "-relay-check",
+       "-min-bid=0.03",
+       "-addr=0.0.0.0:18550",
+       "-relay=https://0xafa4c6985aa049fb79dd37010438cfebeb0f2bd42b115b89dd678dab0670c1de38da0c4e9138c9290a398ecd9a0b3110@boost-relay-holesky.flashbots.net",
+       "-relay=https://0xab78bf8c781c58078c3beb5710c57940874dd96aef2835e7742c866b4c7c0406754376c2c8285a36c630346aa5c5f833@holesky.aestus.live",
+       "-relay=https://0xaa58208899c6105603b74396734a6263cc7d947f444f396a90f7b7d3e65d102aec7e5e5291b27e08d02c50a050825c2f@holesky.titanrelay.xyz",
+      ]
+    ports:
+      - "18550:18550"
+
